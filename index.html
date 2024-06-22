@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>高斯光束綜合調製視覺化</title>
+    <title>高斯光束綜合調製視覺化（時間同步版）</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f0f0; }
@@ -17,7 +17,7 @@
     </style>
 </head>
 <body>
-    <h1>高斯光束綜合調製視覺化（更新版）</h1>
+    <h1>高斯光束綜合調製視覺化（時間同步版）</h1>
     <div class="controls">
         <label for="beamWidth">光束寬度 (w₀): <span id="beamWidthValue">1</span></label>
         <input type="range" id="beamWidth" min="0.1" max="2" step="0.1" value="1">
@@ -79,18 +79,28 @@
         let soundWaveX = 0;
         let soundWaveY = 0;
         let time = 0;
+        const timeWindow = 20; // 時間窗口大小
+        const dataPoints = 200; // 數據點數量
 
-        // 一維圖表相關函數
-        function createData(callback) {
-            const t = Array.from({length: 400}, (_, i) => i * 0.05);
-            const y = t.map(callback);
-            return {t, y};
+        // 創建圖表數據
+        function createChartData() {
+            return {
+                labels: Array(dataPoints).fill(0).map((_, i) => i * timeWindow / dataPoints),
+                datasets: [{
+                    label: '',
+                    data: Array(dataPoints).fill(0),
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.1
+                }]
+            };
         }
 
+        // 高斯光束總強度計算
         function gaussianTotalIntensity() {
             return Math.PI * Math.pow(beamWidth, 2) / 2;
         }
 
+        // 調製強度隨時間的變化
         function modulationOverTime(t) {
             const halfTime = 10;
             if (t <= halfTime) {
@@ -100,42 +110,21 @@
             }
         }
 
-        function updateCharts() {
-            const soundWaveData = createData(t => {
-                const currentModulation = modulationOverTime(t);
-                return currentModulation * Math.sin(2 * Math.PI * modulationFrequency * t);
-            });
-            const gaussianBeamData = createData(_ => gaussianTotalIntensity());
-            const modulatedBeamData = createData(t => {
-                const currentModulation = modulationOverTime(t);
-                const modulation = 1 + currentModulation * Math.sin(2 * Math.PI * modulationFrequency * t);
-                return gaussianTotalIntensity() * modulation;
-            });
-
-            updateChart(soundWaveChart, soundWaveData, '聲波振幅');
-            updateChart(gaussianBeamChart, gaussianBeamData, '高斯光束總強度');
-            updateChart(modulatedBeamChart, modulatedBeamData, '調製後總強度');
+        // 更新圖表數據
+        function updateChartData(chart, value) {
+            chart.data.datasets[0].data.push(value);
+            chart.data.datasets[0].data.shift();
+            chart.update('none');
         }
 
-        function updateChart(chart, data, label) {
-            chart.data.labels = data.t;
-            chart.data.datasets[0].data = data.y;
-            chart.data.datasets[0].label = label;
-            chart.update();
-        }
-
+        // 創建圖表
         function createChart(ctx, label) {
             return new Chart(ctx, {
                 type: 'line',
-                data: {
-                    datasets: [{
-                        label: label,
-                        borderColor: 'rgb(75, 192, 192)',
-                        tension: 0.1
-                    }]
-                },
+                data: createChartData(),
                 options: {
                     responsive: true,
+                    animation: false,
                     scales: {
                         x: {
                             title: {
@@ -183,6 +172,7 @@
         }
 
         function animate() {
+            // 更新二維動畫
             drawImage(soundWaveCtx, (x, y) => {
                 const dx = x - soundWaveX;
                 const dy = y - soundWaveY;
@@ -203,16 +193,22 @@
                 return gaussianIntensity * modulation;
             });
 
+            // 更新一維圖表
+            const currentModulation = modulationOverTime(time);
+            updateChartData(soundWaveChart, currentModulation * Math.sin(2 * Math.PI * modulationFrequency * time));
+            updateChartData(gaussianBeamChart, gaussianTotalIntensity());
+            updateChartData(modulatedBeamChart, gaussianTotalIntensity() * (1 + currentModulation * Math.sin(2 * Math.PI * modulationFrequency * time)));
+
             time += 0.05;
-            updateCharts();
             requestAnimationFrame(animate);
         }
 
-        // 初始化圖表和畫布
+        // 初始化圖表
         const soundWaveChart = createChart(document.getElementById('soundWaveChart').getContext('2d'), '聲波振幅');
         const gaussianBeamChart = createChart(document.getElementById('gaussianBeamChart').getContext('2d'), '高斯光束總強度');
         const modulatedBeamChart = createChart(document.getElementById('modulatedBeamChart').getContext('2d'), '調製後總強度');
 
+        // 初始化畫布
         const soundWaveCanvas = document.getElementById('soundWaveCanvas');
         const gaussianBeamCanvas = document.getElementById('gaussianBeamCanvas');
         const modulatedBeamCanvas = document.getElementById('modulatedBeamCanvas');
@@ -278,6 +274,12 @@
             document.getElementById('rampUpSpeedValue').textContent = '1.0';
             document.getElementById('soundWaveXValue').textContent = '0.0';
             document.getElementById('soundWaveYValue').textContent = '0.0';
+            
+            // 重置圖表數據
+            [soundWaveChart, gaussianBeamChart, modulatedBeamChart].forEach(chart => {
+                chart.data = createChartData();
+                chart.update();
+            });
         });
 
         // 開始動畫
