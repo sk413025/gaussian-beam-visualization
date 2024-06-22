@@ -3,19 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>高斯光束漸進調製視覺化</title>
+    <title>高斯光束綜合調製視覺化</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f0f0; }
         .container { display: flex; flex-wrap: wrap; justify-content: space-around; }
-        .chart-container { width: 30%; min-width: 300px; background-color: white; margin: 10px; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .chart-container, .canvas-container { width: 30%; min-width: 300px; background-color: white; margin: 10px; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         h1, h2 { color: #333; }
         .controls { margin-bottom: 20px; }
         input[type="range"] { width: 100%; }
+        canvas { width: 100%; height: auto; }
     </style>
 </head>
 <body>
-    <h1>高斯光束漸進調製視覺化</h1>
+    <h1>高斯光束綜合調製視覺化</h1>
     <div class="controls">
         <label for="beamWidth">光束寬度 (w₀): <span id="beamWidthValue">1</span></label>
         <input type="range" id="beamWidth" min="0.1" max="2" step="0.1" value="1">
@@ -29,18 +30,34 @@
         <label for="rampUpSpeed">調製強度增加速度: <span id="rampUpSpeedValue">1</span></label>
         <input type="range" id="rampUpSpeed" min="0.1" max="5" step="0.1" value="1">
     </div>
+    <h2>一維時間序列圖</h2>
     <div class="container">
         <div class="chart-container">
-            <h2>聲波振幅</h2>
+            <h3>聲波振幅</h3>
             <canvas id="soundWaveChart"></canvas>
         </div>
         <div class="chart-container">
-            <h2>原始高斯光束總強度</h2>
+            <h3>原始高斯光束總強度</h3>
             <canvas id="gaussianBeamChart"></canvas>
         </div>
         <div class="chart-container">
-            <h2>調製後高斯光束總強度</h2>
+            <h3>調製後高斯光束總強度</h3>
             <canvas id="modulatedBeamChart"></canvas>
+        </div>
+    </div>
+    <h2>二維平面動畫</h2>
+    <div class="container">
+        <div class="canvas-container">
+            <h3>二維平面聲波</h3>
+            <canvas id="soundWaveCanvas"></canvas>
+        </div>
+        <div class="canvas-container">
+            <h3>原始高斯光束</h3>
+            <canvas id="gaussianBeamCanvas"></canvas>
+        </div>
+        <div class="canvas-container">
+            <h3>調製後高斯光束</h3>
+            <canvas id="modulatedBeamCanvas"></canvas>
         </div>
     </div>
 
@@ -50,22 +67,21 @@
         let modulationStrength = 1;
         let modulationFrequency = 1;
         let rampUpSpeed = 1;
+        let time = 0;
 
-        // 創建數據
+        // 一維圖表相關函數
         function createData(callback) {
             const t = Array.from({length: 400}, (_, i) => i * 0.05);
             const y = t.map(callback);
             return {t, y};
         }
 
-        // 高斯光束總強度計算（不隨時間變化）
         function gaussianTotalIntensity() {
             return Math.PI * Math.pow(beamWidth, 2) / 2;
         }
 
-        // 調製強度隨時間的變化
         function modulationOverTime(t) {
-            const halfTime = 10; // 時間軸的一半
+            const halfTime = 10;
             if (t <= halfTime) {
                 return 0;
             } else {
@@ -73,7 +89,6 @@
             }
         }
 
-        // 更新圖表
         function updateCharts() {
             const soundWaveData = createData(t => {
                 const currentModulation = modulationOverTime(t);
@@ -91,7 +106,6 @@
             updateChart(modulatedBeamChart, modulatedBeamData, '調製後總強度');
         }
 
-        // 更新單個圖表
         function updateChart(chart, data, label) {
             chart.data.labels = data.t;
             chart.data.datasets[0].data = data.y;
@@ -99,7 +113,6 @@
             chart.update();
         }
 
-        // 創建圖表
         function createChart(ctx, label) {
             return new Chart(ctx, {
                 type: 'line',
@@ -130,38 +143,97 @@
             });
         }
 
-        // 初始化圖表
+        // 二維動畫相關函數
+        const canvasSize = 300;
+
+        function gaussian(x, y, sigma) {
+            return Math.exp(-(x*x + y*y) / (2 * sigma * sigma));
+        }
+
+        function drawImage(ctx, func) {
+            const imageData = ctx.createImageData(canvasSize, canvasSize);
+            const data = imageData.data;
+
+            for (let x = 0; x < canvasSize; x++) {
+                for (let y = 0; y < canvasSize; y++) {
+                    const index = (y * canvasSize + x) * 4;
+                    const normalizedX = (x - canvasSize/2) / (canvasSize/4);
+                    const normalizedY = (y - canvasSize/2) / (canvasSize/4);
+                    const value = func(normalizedX, normalizedY);
+
+                    data[index] = value * 255;     // R
+                    data[index + 1] = value * 255; // G
+                    data[index + 2] = value * 255; // B
+                    data[index + 3] = 255;         // A
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function animate() {
+            drawImage(soundWaveCtx, (x, y) => {
+                const distance = Math.sqrt(x*x + y*y);
+                return 0.5 + 0.5 * modulationOverTime(time) * Math.sin(2 * Math.PI * (distance - modulationFrequency * time));
+            });
+
+            drawImage(gaussianBeamCtx, (x, y) => {
+                return gaussian(x, y, beamWidth);
+            });
+
+            drawImage(modulatedBeamCtx, (x, y) => {
+                const gaussianIntensity = gaussian(x, y, beamWidth);
+                const distance = Math.sqrt(x*x + y*y);
+                const modulation = 1 + modulationOverTime(time) * Math.sin(2 * Math.PI * (distance - modulationFrequency * time));
+                return gaussianIntensity * modulation;
+            });
+
+            time += 0.05;
+            updateCharts();
+            requestAnimationFrame(animate);
+        }
+
+        // 初始化圖表和畫布
         const soundWaveChart = createChart(document.getElementById('soundWaveChart').getContext('2d'), '聲波振幅');
         const gaussianBeamChart = createChart(document.getElementById('gaussianBeamChart').getContext('2d'), '高斯光束總強度');
         const modulatedBeamChart = createChart(document.getElementById('modulatedBeamChart').getContext('2d'), '調製後總強度');
+
+        const soundWaveCanvas = document.getElementById('soundWaveCanvas');
+        const gaussianBeamCanvas = document.getElementById('gaussianBeamCanvas');
+        const modulatedBeamCanvas = document.getElementById('modulatedBeamCanvas');
+
+        [soundWaveCanvas, gaussianBeamCanvas, modulatedBeamCanvas].forEach(canvas => {
+            canvas.width = canvasSize;
+            canvas.height = canvasSize;
+        });
+
+        const soundWaveCtx = soundWaveCanvas.getContext('2d');
+        const gaussianBeamCtx = gaussianBeamCanvas.getContext('2d');
+        const modulatedBeamCtx = modulatedBeamCanvas.getContext('2d');
 
         // 更新控制元件
         document.getElementById('beamWidth').addEventListener('input', function(e) {
             beamWidth = parseFloat(e.target.value);
             document.getElementById('beamWidthValue').textContent = beamWidth.toFixed(1);
-            updateCharts();
         });
 
         document.getElementById('modulationStrength').addEventListener('input', function(e) {
             modulationStrength = parseFloat(e.target.value);
             document.getElementById('modulationStrengthValue').textContent = modulationStrength.toFixed(1);
-            updateCharts();
         });
 
         document.getElementById('modulationFrequency').addEventListener('input', function(e) {
             modulationFrequency = parseFloat(e.target.value);
             document.getElementById('modulationFrequencyValue').textContent = modulationFrequency.toFixed(1);
-            updateCharts();
         });
 
         document.getElementById('rampUpSpeed').addEventListener('input', function(e) {
             rampUpSpeed = parseFloat(e.target.value);
             document.getElementById('rampUpSpeedValue').textContent = rampUpSpeed.toFixed(1);
-            updateCharts();
         });
 
-        // 初始更新
-        updateCharts();
+        // 開始動畫
+        animate();
     </script>
 </body>
 </html>
