@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高斯光束漸進調製視覺化</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f0f0; }
+        .container { display: flex; flex-wrap: wrap; justify-content: space-around; }
+        .chart-container { width: 30%; min-width: 300px; background-color: white; margin: 10px; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; }
+        .controls { margin-bottom: 20px; }
+        input[type="range"] { width: 100%; }
+    </style>
+</head>
+<body>
+    <h1>高斯光束漸進調製視覺化</h1>
+    <div class="controls">
+        <label for="beamWidth">光束寬度 (w₀): <span id="beamWidthValue">1</span></label>
+        <input type="range" id="beamWidth" min="0.1" max="2" step="0.1" value="1">
+        <br>
+        <label for="modulationStrength">最大調製強度: <span id="modulationStrengthValue">1</span></label>
+        <input type="range" id="modulationStrength" min="0" max="2" step="0.1" value="1">
+        <br>
+        <label for="modulationFrequency">調製頻率 (相對單位): <span id="modulationFrequencyValue">1</span></label>
+        <input type="range" id="modulationFrequency" min="0.1" max="5" step="0.1" value="1">
+        <br>
+        <label for="rampUpSpeed">調製強度增加速度: <span id="rampUpSpeedValue">1</span></label>
+        <input type="range" id="rampUpSpeed" min="0.1" max="5" step="0.1" value="1">
+    </div>
+    <div class="container">
+        <div class="chart-container">
+            <h2>聲波振幅</h2>
+            <canvas id="soundWaveChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <h2>原始高斯光束總強度</h2>
+            <canvas id="gaussianBeamChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <h2>調製後高斯光束總強度</h2>
+            <canvas id="modulatedBeamChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // 初始化參數
+        let beamWidth = 1;
+        let modulationStrength = 1;
+        let modulationFrequency = 1;
+        let rampUpSpeed = 1;
+
+        // 創建數據
+        function createData(callback) {
+            const t = Array.from({length: 400}, (_, i) => i * 0.05);
+            const y = t.map(callback);
+            return {t, y};
+        }
+
+        // 高斯光束總強度計算（不隨時間變化）
+        function gaussianTotalIntensity() {
+            return Math.PI * Math.pow(beamWidth, 2) / 2;
+        }
+
+        // 調製強度隨時間的變化
+        function modulationOverTime(t) {
+            const halfTime = 10; // 時間軸的一半
+            if (t <= halfTime) {
+                return 0;
+            } else {
+                return Math.min(modulationStrength, (t - halfTime) * rampUpSpeed / 10);
+            }
+        }
+
+        // 更新圖表
+        function updateCharts() {
+            const soundWaveData = createData(t => {
+                const currentModulation = modulationOverTime(t);
+                return currentModulation * Math.sin(2 * Math.PI * modulationFrequency * t);
+            });
+            const gaussianBeamData = createData(_ => gaussianTotalIntensity());
+            const modulatedBeamData = createData(t => {
+                const currentModulation = modulationOverTime(t);
+                const modulation = 1 + currentModulation * Math.sin(2 * Math.PI * modulationFrequency * t);
+                return gaussianTotalIntensity() * modulation;
+            });
+
+            updateChart(soundWaveChart, soundWaveData, '聲波振幅');
+            updateChart(gaussianBeamChart, gaussianBeamData, '高斯光束總強度');
+            updateChart(modulatedBeamChart, modulatedBeamData, '調製後總強度');
+        }
+
+        // 更新單個圖表
+        function updateChart(chart, data, label) {
+            chart.data.labels = data.t;
+            chart.data.datasets[0].data = data.y;
+            chart.data.datasets[0].label = label;
+            chart.update();
+        }
+
+        // 創建圖表
+        function createChart(ctx, label) {
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: label,
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '時間 (相對單位)'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: '強度 (相對單位)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 初始化圖表
+        const soundWaveChart = createChart(document.getElementById('soundWaveChart').getContext('2d'), '聲波振幅');
+        const gaussianBeamChart = createChart(document.getElementById('gaussianBeamChart').getContext('2d'), '高斯光束總強度');
+        const modulatedBeamChart = createChart(document.getElementById('modulatedBeamChart').getContext('2d'), '調製後總強度');
+
+        // 更新控制元件
+        document.getElementById('beamWidth').addEventListener('input', function(e) {
+            beamWidth = parseFloat(e.target.value);
+            document.getElementById('beamWidthValue').textContent = beamWidth.toFixed(1);
+            updateCharts();
+        });
+
+        document.getElementById('modulationStrength').addEventListener('input', function(e) {
+            modulationStrength = parseFloat(e.target.value);
+            document.getElementById('modulationStrengthValue').textContent = modulationStrength.toFixed(1);
+            updateCharts();
+        });
+
+        document.getElementById('modulationFrequency').addEventListener('input', function(e) {
+            modulationFrequency = parseFloat(e.target.value);
+            document.getElementById('modulationFrequencyValue').textContent = modulationFrequency.toFixed(1);
+            updateCharts();
+        });
+
+        document.getElementById('rampUpSpeed').addEventListener('input', function(e) {
+            rampUpSpeed = parseFloat(e.target.value);
+            document.getElementById('rampUpSpeedValue').textContent = rampUpSpeed.toFixed(1);
+            updateCharts();
+        });
+
+        // 初始更新
+        updateCharts();
+    </script>
+</body>
+</html>
