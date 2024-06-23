@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>高斯光束綜合調製視覺化（時間同步版）</title>
+    <title>高斯光束綜合調製視覺化</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.1/chart.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f0f0f0; }
@@ -19,8 +19,17 @@
 <body>
     <h1>高斯光束綜合調製視覺化（時間同步版）</h1>
     <div class="controls">
-        <label for="beamWidth">光束寬度 (w₀): <span id="beamWidthValue">1</span></label>
-        <input type="range" id="beamWidth" min="0.1" max="2" step="0.1" value="1">
+        <label for="waveShapeA">波形 X 軸縮放: <span id="waveShapeAValue">1</span></label>
+        <input type="range" id="waveShapeA" min="0.1" max="2" step="0.1" value="1.0">
+        <br>
+        <label for="waveShapeB">波形 Y 軸縮放: <span id="waveShapeBValue">1</span></label>
+        <input type="range" id="waveShapeB" min="0.1" max="2" step="0.1" value="1.0">
+        <br>
+        <label for="waveRotation">波形旋轉角度: <span id="waveRotationValue">0</span>°</label>
+        <input type="range" id="waveRotation" min="0" max="360" step="1" value="0">
+        <br>
+        <label for="beamWidth">光束寬度 (w₀): <span id="beamWidthValue">0.5</span></label>
+        <input type="range" id="beamWidth" min="0.1" max="1.0" step="0.1" value="0.5">
         <br>
         <label for="modulationStrength">最大調製強度: <span id="modulationStrengthValue">1</span></label>
         <input type="range" id="modulationStrength" min="0" max="2" step="0.1" value="1">
@@ -36,8 +45,6 @@
         <br>
         <label for="soundWaveY">聲波中心 Y 位置: <span id="soundWaveYValue">0</span></label>
         <input type="range" id="soundWaveY" min="-2" max="2" step="0.1" value="0">
-        <br>
-        <button id="resetButton">重置模擬</button>
     </div>
     <h2>一維時間序列圖</h2>
     <div class="container">
@@ -72,13 +79,16 @@
 
     <script>
         // 初始化參數
-        let beamWidth = 1;
+        let waveShapeA = 1;
+        let waveShapeB = 1;
+        let waveRotation = 0;
+        let beamWidth = 0.5;
         let modulationStrength = 1;
         let modulationFrequency = 1;
         let rampUpSpeed = 1;
         let soundWaveX = 0;
         let soundWaveY = 0;
-        let time = 0;
+        let time = 0.05;
         const timeWindow = 20; // 時間窗口大小
         const dataPoints = 200; // 數據點數量
 
@@ -102,11 +112,11 @@
 
         // 調製強度隨時間的變化
         function modulationOverTime(t) {
-            const halfTime = 10;
+            const halfTime = 5;
             if (t <= halfTime) {
                 return 0;
             } else {
-                return Math.min(modulationStrength, (t - halfTime) * rampUpSpeed / 10);
+                return Math.min(modulationStrength, (t - halfTime) * rampUpSpeed / halfTime);
             }
         }
 
@@ -118,7 +128,7 @@
         }
 
         // 創建圖表
-        function createChart(ctx, label) {
+        function createChart(ctx, label, yAxisConfig) {
             return new Chart(ctx, {
                 type: 'line',
                 data: createChartData(),
@@ -136,7 +146,8 @@
                             title: {
                                 display: true,
                                 text: '強度 (相對單位)'
-                            }
+                            },
+                            ...yAxisConfig  // 使用傳入的 Y 軸配置
                         }
                     }
                 }
@@ -148,6 +159,33 @@
 
         function gaussian(x, y, sigma) {
             return Math.exp(-(x*x + y*y) / (2 * sigma * sigma));
+        }
+
+        function calculateDistance(x, y, centerX, centerY, a, b, angle) {
+            // 將角度轉換為弧度
+            const theta = angle * Math.PI / 180;
+            
+            // 將坐標系平移到橢圓中心
+            const dx = x - centerX;
+            const dy = y - centerY;
+            
+            // 應用旋轉
+            const rotatedX = dx * Math.cos(theta) + dy * Math.sin(theta);
+            const rotatedY = -dx * Math.sin(theta) + dy * Math.cos(theta);
+            
+            // 計算橢圓上的距離
+            return Math.sqrt((rotatedX*rotatedX)/(a*a) + (rotatedY*rotatedY)/(b*b));
+        }
+
+        function calculateEllipticalPhase(x, y, centerX, centerY, a, b, angle, time) {
+            const theta = angle * Math.PI / 180;
+            const dx = x - centerX;
+            const dy = y - centerY;
+            const rotatedX = dx * Math.cos(theta) + dy * Math.sin(theta);
+            const rotatedY = -dx * Math.sin(theta) + dy * Math.cos(theta);
+            const distance = Math.sqrt((rotatedX*rotatedX)/(a*a) + (rotatedY*rotatedY)/(b*b));
+            const phase = 2 * Math.PI * (distance - modulationFrequency * time);
+            return { distance, phase };
         }
 
         function drawImage(ctx, func) {
@@ -174,9 +212,7 @@
         function animate() {
             // 更新二維動畫
             drawImage(soundWaveCtx, (x, y) => {
-                const dx = x - soundWaveX;
-                const dy = y - soundWaveY;
-                const distance = Math.sqrt(dx*dx + dy*dy);
+                const distance = calculateDistance(x, y, soundWaveX, soundWaveY, waveShapeA, waveShapeB, waveRotation);
                 return 0.5 + 0.5 * modulationOverTime(time) * Math.sin(2 * Math.PI * (distance - modulationFrequency * time));
             });
 
@@ -186,27 +222,80 @@
 
             drawImage(modulatedBeamCtx, (x, y) => {
                 const gaussianIntensity = gaussian(x, y, beamWidth);
-                const dx = x - soundWaveX;
-                const dy = y - soundWaveY;
-                const distance = Math.sqrt(dx*dx + dy*dy);
-                const modulation = 1 + modulationOverTime(time) * Math.sin(2 * Math.PI * (distance - modulationFrequency * time));
+                const { phase } = calculateEllipticalPhase(x, y, soundWaveX, soundWaveY, waveShapeA, waveShapeB, waveRotation, time);
+                const modulation = 1 + modulationOverTime(time) * Math.sin(phase);
                 return gaussianIntensity * modulation;
             });
 
             // 更新一維圖表
+            function calculateAverageModulation() {
+                let totalModulation = 0;
+                let totalWeight = 0;
+                const samplePoints = 100;
+                const maxRadius = 3 * beamWidth; // 考慮到3倍光束寬度的範圍
+            
+                for (let i = 0; i < samplePoints; i++) {
+                    for (let j = 0; j < samplePoints; j++) {
+                        const x = (i - samplePoints/2) * maxRadius / samplePoints;
+                        const y = (j - samplePoints/2) * maxRadius / samplePoints;
+                        const gaussianWeight = gaussian(x, y, beamWidth);
+                        const { phase } = calculateEllipticalPhase(x, y, soundWaveX, soundWaveY, waveShapeA, waveShapeB, waveRotation, time);
+                        const modulation = Math.sin(phase);
+                        totalModulation += gaussianWeight * modulation;
+                        totalWeight += gaussianWeight;
+                    }
+                }
+            
+                return totalModulation / totalWeight;
+            }
+            
+            // 在 animate 函數中更新圖表
             const currentModulation = modulationOverTime(time);
-            updateChartData(soundWaveChart, currentModulation * Math.sin(2 * Math.PI * modulationFrequency * time));
+            const averageModulation = calculateAverageModulation();
+            updateChartData(soundWaveChart, currentModulation * averageModulation);
             updateChartData(gaussianBeamChart, gaussianTotalIntensity());
-            updateChartData(modulatedBeamChart, gaussianTotalIntensity() * (1 + currentModulation * Math.sin(2 * Math.PI * modulationFrequency * time)));
+            updateChartData(modulatedBeamChart, gaussianTotalIntensity() * (1 + currentModulation * averageModulation));
 
             time += 0.05;
             requestAnimationFrame(animate);
         }
 
         // 初始化圖表
-        const soundWaveChart = createChart(document.getElementById('soundWaveChart').getContext('2d'), '聲波振幅');
-        const gaussianBeamChart = createChart(document.getElementById('gaussianBeamChart').getContext('2d'), '高斯光束總強度');
-        const modulatedBeamChart = createChart(document.getElementById('modulatedBeamChart').getContext('2d'), '調製後總強度');
+        const soundWaveChart = createChart(
+            document.getElementById('soundWaveChart').getContext('2d'),
+            '聲波振幅',
+            {
+                min: -1,
+                max: 1,
+                ticks: {
+                    stepSize: 0.5
+                }
+            }
+        );
+
+        const gaussianBeamChart = createChart(
+            document.getElementById('gaussianBeamChart').getContext('2d'),
+            '原始高斯光束總強度',
+            {
+                min: 0,
+                max: 1,
+                ticks: {
+                    stepSize: 0.25
+                }
+            }
+        );
+
+        const modulatedBeamChart = createChart(
+            document.getElementById('modulatedBeamChart').getContext('2d'),
+            '調製後高斯光束總強度',
+            {
+                min: 0,
+                max: 0.6,
+                ticks: {
+                    stepSize: 0.15
+                }
+            }
+        );
 
         // 初始化畫布
         const soundWaveCanvas = document.getElementById('soundWaveCanvas');
@@ -253,33 +342,19 @@
             document.getElementById('soundWaveYValue').textContent = soundWaveY.toFixed(1);
         });
 
-        // 重置按鈕
-        document.getElementById('resetButton').addEventListener('click', function() {
-            time = 0;
-            document.getElementById('beamWidth').value = 1;
-            document.getElementById('modulationStrength').value = 1;
-            document.getElementById('modulationFrequency').value = 1;
-            document.getElementById('rampUpSpeed').value = 1;
-            document.getElementById('soundWaveX').value = 0;
-            document.getElementById('soundWaveY').value = 0;
-            beamWidth = 1;
-            modulationStrength = 1;
-            modulationFrequency = 1;
-            rampUpSpeed = 1;
-            soundWaveX = 0;
-            soundWaveY = 0;
-            document.getElementById('beamWidthValue').textContent = '1.0';
-            document.getElementById('modulationStrengthValue').textContent = '1.0';
-            document.getElementById('modulationFrequencyValue').textContent = '1.0';
-            document.getElementById('rampUpSpeedValue').textContent = '1.0';
-            document.getElementById('soundWaveXValue').textContent = '0.0';
-            document.getElementById('soundWaveYValue').textContent = '0.0';
-            
-            // 重置圖表數據
-            [soundWaveChart, gaussianBeamChart, modulatedBeamChart].forEach(chart => {
-                chart.data = createChartData();
-                chart.update();
-            });
+        document.getElementById('waveShapeA').addEventListener('input', function(e) {
+            waveShapeA = parseFloat(e.target.value);
+            document.getElementById('waveShapeAValue').textContent = waveShapeA.toFixed(1);
+        });
+        
+        document.getElementById('waveShapeB').addEventListener('input', function(e) {
+            waveShapeB = parseFloat(e.target.value);
+            document.getElementById('waveShapeBValue').textContent = waveShapeB.toFixed(1);
+        });
+
+        document.getElementById('waveRotation').addEventListener('input', function(e) {
+            waveRotation = parseFloat(e.target.value);
+            document.getElementById('waveRotationValue').textContent = waveRotation;
         });
 
         // 開始動畫
